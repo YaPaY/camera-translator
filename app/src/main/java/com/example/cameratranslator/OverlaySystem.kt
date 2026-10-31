@@ -61,6 +61,8 @@ import kotlin.math.roundToInt
 @Composable
 fun MainOverlay(
     currentTranslation: String,
+    /** Ekrandaki metin çeviri değil bilgi notu ("OPUS indirilmedi" gibi): küçük ve ince yazılır */
+    isStatusMessage: Boolean = false,
     history: List<String>,
     isPaused: Boolean,
     zoomLevel: Float,
@@ -263,8 +265,9 @@ fun MainOverlay(
                 val effectiveFontSize = remember(currentTranslation, subtitleFontSize) {
                     val len = currentTranslation.length
                     when {
-                        len > 130 -> (subtitleFontSize * 0.60f).coerceAtLeast(24f)
-                        len > 85  -> (subtitleFontSize * 0.78f).coerceAtLeast(26f)
+                        // Alt sınır kullanıcının seçtiği boyutu aşmasın (küçük boyut seçildiyse büyütülmesin)
+                        len > 130 -> (subtitleFontSize * 0.60f).coerceAtLeast(minOf(24f, subtitleFontSize))
+                        len > 85  -> (subtitleFontSize * 0.78f).coerceAtLeast(minOf(26f, subtitleFontSize))
                         else -> subtitleFontSize
                     }
                 }
@@ -311,7 +314,9 @@ fun MainOverlay(
                     // Alana sığmazsa (büyük yazı boyutu, uzun cümle, küçük ekran) kendiliğinden küçülür
                     AutoFitText(
                         text = currentTranslation,
-                        maxFontSize = effectiveFontSize,
+                        maxFontSize = if (isStatusMessage) STATUS_FONT_SIZE else effectiveFontSize,
+                        fontWeight = if (isStatusMessage) FontWeight.Normal else FontWeight.Bold,
+                        color = if (isStatusMessage) Color.White.copy(alpha = 0.85f) else Color.White,
                         lineHeightFactor = 1.15f,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -344,12 +349,14 @@ fun MainOverlay(
                     contentAlignment = Alignment.Center
                 ) {
                     val betaFontSize = remember(subtitleFontSize) {
-                        (subtitleFontSize * 0.70f).coerceIn(16f, 48f)
+                        (subtitleFontSize * 0.70f).coerceIn(14f, 48f)
                     }
                     // Kutuya sığmazsa kendiliğinden küçülür (kutu küçültülünce yazı taşmasın)
                     AutoFitText(
                         text = currentTranslation,
-                        maxFontSize = betaFontSize,
+                        maxFontSize = if (isStatusMessage) STATUS_FONT_SIZE else betaFontSize,
+                        fontWeight = if (isStatusMessage) FontWeight.Normal else FontWeight.Bold,
+                        color = if (isStatusMessage) Color.White.copy(alpha = 0.85f) else Color.White,
                         lineHeightFactor = 1.20f,
                         modifier = Modifier.fillMaxSize(),
                         textModifier = Modifier.fillMaxWidth()
@@ -852,3 +859,6 @@ private fun Modifier.alignedToButton(buttonCenterY: Float?, containerHeight: Flo
             placeable.place(0, (center - placeable.height / 2f).coerceIn(margin, maxTop).roundToInt())
         }
     }
+
+/** Bilgi notlarının yazı boyutu (çeviri yazısından küçük) */
+private const val STATUS_FONT_SIZE = 17f
