@@ -631,11 +631,11 @@ class MainActivity : ComponentActivity() {
                     when (val m = offlineModelState) {
                         is OfflineModelDownloader.State.Installed -> ""
                         is OfflineModelDownloader.State.Downloading ->
-                            "⚡ OPUS modeli indiriliyor… %${(m.progress * 100).toInt()}"
-                        is OfflineModelDownloader.State.Verifying -> "⚡ OPUS modeli doğrulanıyor…"
-                        else -> "⚡ OPUS çeviri motoru henüz indirilmedi.\n" +
+                            "OPUS modeli indiriliyor… %${(m.progress * 100).toInt()}"
+                        is OfflineModelDownloader.State.Verifying -> "OPUS modeli doğrulanıyor…"
+                        else -> "OPUS çeviri motoru henüz indirilmedi.\n" +
                             "Dilerseniz Ayarlar'dan tek seferlik indirebilirsiniz (355 MB). " +
-                            "O zamana kadar standart çevrimdışı çeviri kullanılır."
+                            "O zamana kadar standart çevrimdışı motor kullanılır."
                     }
                 } else ""
 
@@ -662,6 +662,8 @@ class MainActivity : ComponentActivity() {
 
                 MainOverlay(
                     currentTranslation = displayResult,
+                    // Küçük/ince yazı yalnızca OPUS indirme notunda; "Çeviriye Hazır" gibi durumlar eskisi gibi
+                    isStatusMessage = opusModelHint.isNotEmpty(),
                     history = historyList,
                     isPaused = isPaused,
                     zoomLevel = zoomLevel,
