@@ -17,11 +17,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.Cached
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.WbSunny
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.CornerRadius
@@ -35,7 +42,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -157,11 +167,17 @@ fun MainOverlay(
         }
     }
 
+    // Kaydırıcılar kendi düğmelerinin hizasında açılsın: düğmelerin dikey merkezi (kök koordinatında)
+    var overlayTopY by remember { mutableFloatStateOf(0f) }
+    var sunButtonCenterY by remember { mutableStateOf<Float?>(null) }
+    var focusButtonCenterY by remember { mutableStateOf<Float?>(null) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .onGloballyPositioned { coordinates ->
                 containerSize = Size(coordinates.size.width.toFloat(), coordinates.size.height.toFloat())
+                overlayTopY = coordinates.positionInRoot().y
             }
     ) {
         // LAYER 1: Scrim & Green OCR Box Border (Green border rendered ONLY in DEFAULT mode!)
@@ -516,7 +532,12 @@ fun MainOverlay(
                     onClick = onToggleDisplayMode,
                     modifier = Modifier.size(44.dp)
                 ) {
-                    Text("🔄", fontSize = 22.sp)
+                    Icon(
+                        imageVector = Icons.Rounded.Cached,
+                        contentDescription = "Görünüm modunu değiştir",
+                        tint = Color.White,
+                        modifier = Modifier.size(SIDE_ICON_SIZE)
+                    )
                 }
             }
 
@@ -526,34 +547,58 @@ fun MainOverlay(
                     onClick = onToggleMute,
                     modifier = Modifier.size(44.dp)
                 ) {
-                    Text(if (isMuted) "🔇" else "🔊", fontSize = 24.sp)
+                    Icon(
+                        imageVector = if (isMuted) Icons.AutoMirrored.Rounded.VolumeOff else Icons.AutoMirrored.Rounded.VolumeUp,
+                        contentDescription = if (isMuted) "Sesli okumayı aç" else "Sesli okumayı kapat",
+                        tint = Color.White,
+                        modifier = Modifier.size(SIDE_ICON_SIZE)
+                    )
                 }
             }
 
             // 3. Stealth Mode Eye Button (ALWAYS VISIBLE so user can toggle back!)
             IconButton(
                 onClick = onToggleStealthMode,
-                modifier = Modifier.size(44.dp)
+                // Arayüz gizliyken göz simgesi karanlık ekranda dikkat çekmesin: yarı saydam (dokunma alanı aynı)
+                modifier = Modifier.size(44.dp).alpha(if (isStealthMode) 0.4f else 1f)
             ) {
-                Text(if (isStealthMode) "👁️‍🗨️" else "👁️", fontSize = 24.sp)
+                // Emoji yerine odak simgesiyle aynı tarzda vektör simge: gizliyken "kapalı göz"
+                Icon(
+                    imageVector = if (isStealthMode) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                    contentDescription = if (isStealthMode) "Arayüzü göster" else "Arayüzü gizle",
+                    tint = Color.White,
+                    modifier = Modifier.size(SIDE_ICON_SIZE)
+                )
             }
 
             // 4. Exposure Control Sun Button
             if (!isStealthMode) {
-                IconButton(onClick = onToggleExposureControls, modifier = Modifier.size(44.dp)) {
-                    Text("☀️", fontSize = 24.sp)
+                IconButton(
+                    onClick = onToggleExposureControls,
+                    modifier = Modifier.size(44.dp).onGloballyPositioned { sunButtonCenterY = it.boundsInRoot().center.y }
+                ) {
+                    // Panel açıkken vurgulu (odak düğmesiyle aynı davranış)
+                    Icon(
+                        imageVector = Icons.Rounded.WbSunny,
+                        contentDescription = "Parlaklık",
+                        tint = if (isExposureControlsVisible) Color(0xFFFFD54F) else Color.White,
+                        modifier = Modifier.size(SIDE_ICON_SIZE)
+                    )
                 }
             }
 
             // 5. Manual Focus Control Button
             if (!isStealthMode) {
-                IconButton(onClick = onToggleFocusControls, modifier = Modifier.size(44.dp)) {
+                IconButton(
+                    onClick = onToggleFocusControls,
+                    modifier = Modifier.size(44.dp).onGloballyPositioned { focusButtonCenterY = it.boundsInRoot().center.y }
+                ) {
                     // Kameralardaki odak çerçevesi simgesi; panel açıkken vurgulu
                     Icon(
                         imageVector = Icons.Filled.CenterFocusStrong,
                         contentDescription = "Manuel odak",
                         tint = if (isFocusControlsVisible) Color(0xFFFFD54F) else Color.White,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(SIDE_ICON_SIZE)
                     )
                 }
             }
@@ -572,9 +617,9 @@ fun MainOverlay(
                 zoneColor = Color(0xFFB388FF),
                 onValueChange = { onExposureIndexChange(it.roundToInt()) },
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
+                    .align(Alignment.TopEnd)
                     .padding(end = dynamicEndPadding + 52.dp)
-                    .offset(y = 4.dp)
+                    .alignedToButton(sunButtonCenterY?.minus(overlayTopY), containerSize.height)
             )
         }
 
@@ -582,9 +627,9 @@ fun MainOverlay(
             val isAutoFocus = manualFocusValue < AUTO_FOCUS_ZONE
             Column(
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
+                    .align(Alignment.TopEnd)
                     .padding(end = dynamicEndPadding + 52.dp)
-                    .offset(y = 80.dp),
+                    .alignedToButton(focusButtonCenterY?.minus(overlayTopY), containerSize.height),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // En alttaki yeşil bölge otomatik odak; oraya çekilince AUTO'ya oturur
@@ -788,3 +833,22 @@ private fun VerticalSliderCard(
         )
     }
 }
+
+/** Sağdaki kontrol simgelerinin ortak boyutu (göz, ses, görünüm modu, parlaklık, odak) */
+private val SIDE_ICON_SIZE = 25.dp
+
+/**
+ * Açılan kaydırıcı panelini kendi düğmesinin dikey hizasına ortalar (yatayda da dikeyde de);
+ * ekran kenarına taşacaksa içeride tutar. Konum ölçüm aşamasında, panelin gerçek yüksekliğiyle
+ * hesaplanır: önceden yükseklik bir kare sonra öğrenildiği için panel önce aşağıda görünüp zıplıyordu.
+ */
+private fun Modifier.alignedToButton(buttonCenterY: Float?, containerHeight: Float): Modifier =
+    this.layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        layout(placeable.width, placeable.height) {
+            val margin = 12.dp.toPx()
+            val center = buttonCenterY ?: (containerHeight / 2f)
+            val maxTop = (containerHeight - placeable.height - margin).coerceAtLeast(margin)
+            placeable.place(0, (center - placeable.height / 2f).coerceIn(margin, maxTop).roundToInt())
+        }
+    }
