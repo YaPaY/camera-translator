@@ -29,6 +29,7 @@ fun AutoFitText(
     modifier: Modifier = Modifier,
     color: Color = Color.White,
     lineHeightFactor: Float = 1.15f,
+    fontWeight: FontWeight = FontWeight.Bold,
     contentAlignment: Alignment = Alignment.Center,
     textModifier: Modifier = Modifier
 ) {
@@ -36,13 +37,13 @@ fun AutoFitText(
     BoxWithConstraints(modifier = modifier, contentAlignment = contentAlignment) {
         val widthPx = constraints.maxWidth
         val heightPx = constraints.maxHeight
-        val fontSize = remember(text, maxFontSize, widthPx, heightPx, lineHeightFactor) {
+        val fontSize = remember(text, maxFontSize, widthPx, heightPx, lineHeightFactor, fontWeight) {
             if (widthPx == Constraints.Infinity || heightPx == Constraints.Infinity) return@remember maxFontSize
             var size = maxFontSize
             while (size > MIN_FIT_FONT_SIZE) {
                 val result = measurer.measure(
                     text = text,
-                    style = subtitleStyle(size, lineHeightFactor),
+                    style = subtitleStyle(size, lineHeightFactor, fontWeight),
                     constraints = Constraints(maxWidth = widthPx)
                 )
                 if (result.size.height <= heightPx) break
@@ -53,15 +54,15 @@ fun AutoFitText(
         Text(
             text = text,
             color = color,
-            style = subtitleStyle(fontSize, lineHeightFactor),
+            style = subtitleStyle(fontSize, lineHeightFactor, fontWeight),
             modifier = textModifier
         )
     }
 }
 
-private fun subtitleStyle(size: Float, lineHeightFactor: Float) = TextStyle(
+private fun subtitleStyle(size: Float, lineHeightFactor: Float, fontWeight: FontWeight) = TextStyle(
     fontSize = size.sp,
-    fontWeight = FontWeight.Bold,
+    fontWeight = fontWeight,
     textAlign = TextAlign.Center,
     lineHeight = (size * lineHeightFactor).sp
 )
