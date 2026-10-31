@@ -15,6 +15,7 @@ Camera Translator'ın kaynak kodu [MIT lisansı](LICENSE.md) ile yayımlanır. U
   - tokenizer sözlüğü (`source_pieces.tsv`) düz metin olarak çıkarılmış
 
   halidir. Model ağırlıkları yeniden eğitilmemiştir. Dönüştürme betikleri: [tools/offline_model](tools/offline_model).
+- **Uygulamanın içindeki sözlük:** `app/src/main/assets/ocr_vocab.tsv`, bu modelin kaynak dil sözlüğündeki tam kelimelerin ve sıklık puanlarının listesidir. OCR kelime düzelticisi bunu kullanır; böylece düzeltme OPUS indirilmeden ve tüm çeviri modlarında çalışır. Lisansı modelle aynıdır (CC-BY 4.0).
 - **Dağıtım:** Dönüştürülmüş dosyalar bu reponun [`offline-model-v1`](https://github.com/crosswindfighter/camera-translator/releases/tag/offline-model-v1) sürümünde yayımlanır ve uygulama içinden indirilir.
 - **Atıf:**
   > Jörg Tiedemann and Santhosh Thottingal. 2020. *OPUS-MT — Building open translation services for the World.* In Proceedings of the 22nd Annual Conference of the European Association for Machine Translation (EAMT).

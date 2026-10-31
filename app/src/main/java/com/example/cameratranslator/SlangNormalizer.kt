@@ -18,7 +18,13 @@ object SlangNormalizer {
     /** Hitap sonu: ardından noktalama ya da metin sonu gelmeli. */
     private const val VOCATIVE_END = "(?=\\s*[.!?,]|\\s*$)"
 
-    private val RULES: List<Pair<Regex, String>> = listOf(
+    /**
+     * Google modlarında da uygulanan dar kurallar: Google'ın da yanlış çevirdiği görülenler
+     * ("tricked out, dog" -> "kandırılmış, köpek", "nigga" -> "zenci"). Hitaplar yalnızca virgülden
+     * sonra ve öbek sonunda eşleşir; başka cümlelere dokunmaz. Google'ın zaten doğru çevirdiği
+     * kalıplar (gonna, no shit, strapped…) burada bilerek yok.
+     */
+    private val SHARED_RULES: List<Pair<Regex, String>> = listOf(
         // Hitaplar (köpek, kuzen, zenci gibi düz çevrilmesin)
         "(?<=,\\s)(dog|dawg)$VOCATIVE_END" to "dude",
         "(?<=,\\s)(homes|holmes)$VOCATIVE_END" to "buddy",
@@ -27,6 +33,11 @@ object SlangNormalizer {
         "\\bmy (nigga|nigguh|niggah)\\b" to "my brother",
         "\\b(nigga|nigguh|niggah)s\\b" to "guys",
         "\\b(nigga|nigguh|niggah)\\b" to "man",
+        "\\btricked[- ]out\\b" to "modified",
+    ).map { (pattern, replacement) -> Regex(pattern, RegexOption.IGNORE_CASE) to replacement }
+
+    /** Yalnızca OPUS için (Google bunları zaten doğru çeviriyor). */
+    private val RULES: List<Pair<Regex, String>> = listOf(
         "\\bmy g\\b" to "my man",
 
         // Kalıplar
@@ -34,7 +45,6 @@ object SlangNormalizer {
         "\\bno shit\\b" to "no kidding",
         "\\bno cap\\b" to "no lie",
         "\\bfive-?o\\b|\\b5-0\\b" to "the cops",
-        "\\btricked[- ]out\\b" to "modified",
         "\\brepo\\b" to "repossess",
         // "You're strapped in" (kemer/emniyet) "Silahlısın" oluyordu: in/down/into ile gelince dokunma
         "\\bstrapped\\b(?!\\s+(in|down|into|to)\\b)" to "armed",
@@ -64,8 +74,17 @@ object SlangNormalizer {
     /** Kekeleme: "p-p-pretend", "A-A-And", "M-M-M-Mrs." -> pretend, And, Mrs. (OPUS döngüye giriyordu) */
     private val STUTTER = Regex("\\b([A-Za-z])-(?:\\1-)*(?=\\1)", RegexOption.IGNORE_CASE)
 
+    /** Google modları için: yalnızca ortak dar kurallar. */
+    fun normalizeShared(text: String): String {
+        var result = text
+        for ((regex, replacement) in SHARED_RULES) {
+            result = regex.replace(result) { match -> keepCase(match.value, replacement) }
+        }
+        return result
+    }
+
     fun normalize(text: String): String {
-        var result = STUTTER.replace(text, "")
+        var result = normalizeShared(STUTTER.replace(text, ""))
         for ((regex, replacement) in RULES) {
             result = regex.replace(result) { match -> keepCase(match.value, replacement) }
         }

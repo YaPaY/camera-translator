@@ -207,9 +207,13 @@ fun CameraPreview(
         if (!autoFocus) return@LaunchedEffect
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             delay(AUTO_REFOCUS_DELAY_MS)
+            refocusCenter(camera, darkStepFor(camera, currentExposureIndex))
             while (true) {
-                refocusCenter(camera, darkStepFor(camera, currentExposureIndex))
                 delay(PERIODIC_REFOCUS_MS)
+                // Ekstra karartmada periyodik netleme yok: karanlık görüntüde odak bazen "netlendi" deyip
+                // yanlış yere netliyor ve altyazı 30 sn okunamıyordu (testte görüldü). Mercek yerinde kalır.
+                val darkStep = darkStepFor(camera, currentExposureIndex)
+                if (darkStep == 0) refocusCenter(camera, darkStep)
             }
         }
     }
@@ -225,14 +229,19 @@ private const val REFOCUS_AFTER_ZOOM_MS = 400L
 private const val AUTO_REFOCUS_DELAY_MS = 300L
 /** Oto odakta arada bir yeniden odaklama: zoom ya da ortam değişse de görüntü bulanık kalmasın. */
 private const val PERIODIC_REFOCUS_MS = 20_000L
+/** Karanlıktan normal parlaklığa geçince otomatik pozlamanın oturması için netlemeden önce bekleme */
+private const val DARK_REFOCUS_EXPOSURE_MS = 500L
 
 /**
  * Ortadaki noktaya bir kez odaklanır ve odağı orada sabitler (tripodda görüntü odak arayıp
  * kaymasın). Zoom bittikten sonra, uygulamaya dönünce ve açılışta çağrılır.
  */
-private fun refocusCenter(camera: Camera, darkStep: Int) {
+private suspend fun refocusCenter(camera: Camera, darkStep: Int) {
     try {
-        CameraTuning.apply(camera, 0f, darkStep, force = true)
+        // Ekstra karartmadaysa netleme bir anlığına normal parlaklıkta yapılır (karanlıkta odak yanılıyor),
+        // bitince karanlığa dönülür. Yalnızca Oto'ya geçince, zoom sonrası ve uygulamaya dönünce olur.
+        CameraTuning.apply(camera, 0f, 0, force = true)
+        if (darkStep > 0) delay(DARK_REFOCUS_EXPOSURE_MS)
         val point = SurfaceOrientedMeteringPointFactory(1f, 1f).createPoint(0.5f, 0.5f)
         val action = FocusMeteringAction.Builder(point, FocusMeteringAction.FLAG_AF)
             .disableAutoCancel()
@@ -240,8 +249,14 @@ private fun refocusCenter(camera: Camera, darkStep: Int) {
         val future = camera.cameraControl.startFocusAndMetering(action)
         // Geliştirici modu logu: bulanık görüntüde odağın denenip denenmediği / tutup tutmadığı görülsün
         future.addListener({
-            val result = try { if (future.get().isFocusSuccessful) "netlendi" else "NETLENEMEDİ" } catch (e: Exception) { "iptal" }
-            OcrDebugDumper.logPipeline("Odak", result, endOfEntry = true)
+            val success = try { future.get().isFocusSuccessful } catch (e: Exception) { null }
+            OcrDebugDumper.logPipeline("Odak", when (success) { true -> "netlendi"; false -> "NETLENEMEDİ"; null -> "iptal" }, endOfEntry = true)
+            // Netleme tutmazsa mercek yanlış yerde kalmasın: son başarılı konuma dön (karartma da geri gelir)
+            if (success == false && CameraTuning.restoreLastGoodFocus(camera, darkStep)) {
+                OcrDebugDumper.logPipeline("Odak", "son iyi konuma geri dönüldü", endOfEntry = true)
+            } else if (darkStep > 0) {
+                CameraTuning.apply(camera, 0f, darkStep, force = true)
+            }
         }, Runnable::run)
     } catch (e: Exception) {
         Log.e("CameraPreview", "Refocus failed", e)

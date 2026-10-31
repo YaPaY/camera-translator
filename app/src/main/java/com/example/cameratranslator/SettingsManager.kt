@@ -90,6 +90,14 @@ class SettingsManager(context: Context) {
         return prefs.getBoolean("ocr_center_only_enabled", true)
     }
 
+    fun saveOpusCarefulEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("opus_careful_enabled", enabled).apply()
+    }
+
+    fun getOpusCarefulEnabled(): Boolean {
+        return prefs.getBoolean("opus_careful_enabled", false)
+    }
+
     /** Ana ekrandaki yakınlaştırma kontrolü: true = kaydırıcı (geniş açı–20x), false = 1x–5x düğmeleri. */
     fun saveZoomSliderEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("zoom_slider_enabled", enabled).apply()

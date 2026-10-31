@@ -172,6 +172,30 @@ private fun OfflineModelSection(
         }
     }
 
+    if (isInfoExpanded && isInstalled) {
+        // Dikkatli çeviri (beam search): daha doğal ama biraz daha yavaş; bilerek bu açılır bölümde
+        var careful by remember { mutableStateOf(OcrTuning.opusCarefulEnabled) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Açıklama metni anahtara değmesin
+            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                Text("Dikkatli çeviri", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Birkaç çeviri seçeneğini deneyip en iyisini seçer. Çeviriler daha doğal olur, ancak biraz daha geç gelir.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = careful, onCheckedChange = {
+                careful = it
+                OcrTuning.opusCarefulEnabled = it
+                SettingsManager(context).saveOpusCarefulEnabled(it)
+            })
+        }
+    }
+
     if (isInfoExpanded) {
         Row(
             modifier = Modifier.fillMaxWidth(),

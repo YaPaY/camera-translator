@@ -38,7 +38,6 @@ class OpusTranslationEngine(context: Context) : ITranslationEngine {
     override val isBusy: StateFlow<Boolean> = _isBusy
 
     val modelDir: File? = OfflineModelDownloader.modelDirectory(context)
-    private val assets = context.applicationContext.assets
 
     private val loadMutex = Mutex()
     private val runMutex = Mutex()
@@ -46,7 +45,6 @@ class OpusTranslationEngine(context: Context) : ITranslationEngine {
     private var encoder: OrtSession? = null
     private var decoder: OrtSession? = null
     private var tokenizer: MarianTokenizer? = null
-    private var corrector: OcrWordCorrector? = null
 
     val isReady: Boolean get() = _status.value == TranslationStatus.Ready
 
@@ -73,7 +71,6 @@ class OpusTranslationEngine(context: Context) : ITranslationEngine {
                     setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                 }
                 tokenizer = MarianTokenizer.load(File(dir, "source_pieces.tsv"), File(dir, "vocab.json"))
-                corrector = tokenizer?.createWordCorrector(loadRealWords())
                 encoder = environment.createSession(File(dir, "encoder_model.onnx").path, options)
                 decoder = environment.createSession(File(dir, "decoder_model_merged.onnx").path, options)
                 env = environment
@@ -87,19 +84,6 @@ class OpusTranslationEngine(context: Context) : ITranslationEngine {
         }
     }
 
-    /**
-     * OPUS sözlüğünde olmayan gerçek İngilizce kelimeler (altyazılardan derlenmiş, OCR hatalarından
-     * ayıklanmış liste): düzeltici bunları hata sanıp değiştirmesin (scotch -/-> scorch, meds -/-> mess).
-     */
-    private fun loadRealWords(): Set<String> = try {
-        assets.open(REAL_WORDS_ASSET).bufferedReader().useLines { lines ->
-            lines.map { it.trim() }.filter { it.isNotEmpty() }.toHashSet()
-        }
-    } catch (e: Exception) {
-        Log.w(TAG, "Real word list missing", e)
-        emptySet()
-    }
-
     override fun isKnownWord(word: String): Boolean = tokenizer?.isWholeWord(word) == true
 
     override suspend fun translate(text: String): String = withContext(Dispatchers.Default) {
@@ -110,9 +94,9 @@ class OpusTranslationEngine(context: Context) : ITranslationEngine {
             try {
                 // OCR'ın eklediği şapkalı harfler (fúcker, Vēspucci) modelde <unk> oluyordu;
                 // ardından OPUS'un bilmediği argo sade İngilizceye çevrilir (dog -> dude vb.)
-                val cleaned = tokenizer?.cleanSource(text).orEmpty()
-                // OCR'ın bozduğu kelimeleri düzelt (Alriaht -> Alright, ofyou -> of you)
-                val corrected = corrector?.correct(cleaned) ?: cleaned
+                val cleaned = tokenizer?.cleanSource(OcrWordCorrector.fixPipes(text)).orEmpty()
+                // OCR'ın bozduğu kelimeleri düzelt (Alriaht -> Alright, ofyou -> of you); tüm modlarda ortak
+                val corrected = OcrTextFixer.fix(cleaned)
                 if (corrected != cleaned) Log.d(TAG, "OCR fix: \"$cleaned\" -> \"$corrected\"")
                 val source = SlangNormalizer.normalize(corrected)
                 OcrDebugDumper.logPipeline("OPUS'a giden", source)
@@ -134,10 +118,182 @@ class OpusTranslationEngine(context: Context) : ITranslationEngine {
         }
     }
 
-    /** Açgözlü (greedy) çözümleme, KV önbellekli birleşik decoder ile. */
     private fun translateSentence(sentence: String): String {
         // Tek başına "Hey!" OPUS'ta "Merhaba!" oluyordu (oyunda hep seslenme)
         if (STANDALONE_HEY.matches(sentence)) return sentence
+        return if (OcrTuning.opusCarefulEnabled) beamSentence(sentence) else greedySentence(sentence)
+    }
+
+    /**
+     * Dikkatli çeviri (beam search): her adımda en olası [BEAM_SIZE] yol birlikte ilerletilir, sonunda
+     * uzunluğa göre normalize edilmiş en yüksek puanlı cümle seçilir. Helsinki modeli bu şekilde
+     * (num_beams=4) değerlendirmiş. 100 oyun altyazısında ~16'sı belirgin şekilde daha iyi, ~5'i daha
+     * kötü çıktı; süre ~3,5 katı. Işınlar decoder'a tek grup (batch) olarak verilir.
+     */
+    private fun beamSentence(sentence: String): String {
+        val environment = env ?: return ""
+        val enc = encoder ?: return ""
+        val dec = decoder ?: return ""
+        val tok = tokenizer ?: return ""
+        val k = BEAM_SIZE
+
+        val inputIds = tok.encode(sentence)
+        val length = inputIds.size
+        val outputNames = dec.outputNames.toList()
+        val closeables = mutableListOf<AutoCloseable>()
+        try {
+            val idsTensor = OnnxTensor.createTensor(environment, LongBuffer.wrap(inputIds), longArrayOf(1, length.toLong()))
+            val oneMask = OnnxTensor.createTensor(environment, LongBuffer.wrap(LongArray(length) { 1L }), longArrayOf(1, length.toLong()))
+            closeables += idsTensor
+            closeables += oneMask
+            val encoderResult = enc.run(mapOf("input_ids" to idsTensor, "attention_mask" to oneMask))
+            closeables += encoderResult
+            val hiddenOne = (encoderResult.get(0) as OnnxTensor)
+            val hiddenShape = hiddenOne.info.shape
+            val hiddenData = hiddenOne.floatBuffer
+            val perBeam = hiddenData.remaining()
+            val repeated = FloatBuffer.allocate(perBeam * k)
+            repeat(k) { repeated.put(hiddenData.duplicate()) }
+            repeated.rewind()
+            val hidden = OnnxTensor.createTensor(environment, repeated, longArrayOf(k.toLong(), hiddenShape[1], hiddenShape[2]))
+            val mask = OnnxTensor.createTensor(environment, LongBuffer.wrap(LongArray(length * k) { 1L }), longArrayOf(k.toLong(), length.toLong()))
+            closeables += hidden
+            closeables += mask
+
+            val past = HashMap<String, OnnxTensor>()
+            for (layer in 0 until DECODER_LAYERS) for (kind in KV_KINDS) for (part in KV_PARTS) {
+                val empty = OnnxTensor.createTensor(environment, FloatBuffer.allocate(0), longArrayOf(k.toLong(), HEADS.toLong(), 0, HEAD_DIM.toLong()))
+                closeables += empty
+                past["past_key_values.$layer.$kind.$part"] = empty
+            }
+
+            var tokens = IntArray(k) { PAD_ID }
+            var scores = DoubleArray(k) { if (it == 0) 0.0 else Double.NEGATIVE_INFINITY }
+            var sequences = List(k) { emptyList<Int>() }
+            val finished = ArrayList<Pair<Double, List<Int>>>()
+            var gathered = emptyList<OnnxTensor>()
+            val maxTokens = minOf(MAX_NEW_TOKENS, length * 2 + 8)
+
+            for (step in 0 until maxTokens) {
+                val tokenTensor = OnnxTensor.createTensor(environment, LongBuffer.wrap(LongArray(k) { tokens[it].toLong() }), longArrayOf(k.toLong(), 1))
+                val cacheTensor = OnnxTensor.createTensor(environment, booleanArrayOf(step > 0))
+                val feeds = HashMap<String, OnnxTensor>(past)
+                feeds["encoder_attention_mask"] = mask
+                feeds["input_ids"] = tokenTensor
+                feeds["encoder_hidden_states"] = hidden
+                feeds["use_cache_branch"] = cacheTensor
+                val result = dec.run(feeds)
+                tokenTensor.close()
+                cacheTensor.close()
+                gathered.forEach { it.close() } // önceki adımın sıralanmış decoder K/V'si kullanıldı
+
+                // Her ışının en iyi 2k devamı (log-softmax puanıyla)
+                val logits = (result.get(0) as OnnxTensor).floatBuffer
+                val vocab = logits.remaining() / k
+                val candidates = ArrayList<Triple<Int, Int, Double>>(k * 2 * k)
+                for (b in 0 until k) {
+                    if (scores[b] == Double.NEGATIVE_INFINITY) continue
+                    val base = b * vocab
+                    var max = Float.NEGATIVE_INFINITY
+                    for (i in 0 until vocab) if (i != PAD_ID && i != UNK_ID) max = maxOf(max, logits.get(base + i))
+                    var sum = 0.0
+                    for (i in 0 until vocab) if (i != PAD_ID && i != UNK_ID) sum += Math.exp((logits.get(base + i) - max).toDouble())
+                    val logZ = max + Math.log(sum)
+                    val top = topIndices(logits, base, vocab, 2 * k)
+                    for (t in top) candidates += Triple(b, t, scores[b] + logits.get(base + t) - logZ)
+                }
+                candidates.sortByDescending { it.third }
+
+                val next = ArrayList<Triple<Int, Int, Double>>(k)
+                for (c in candidates) {
+                    if (c.second == EOS_ID) {
+                        val seq = sequences[c.first]
+                        finished += c.third / maxOf(1, seq.size) to seq
+                    } else {
+                        next += c
+                    }
+                    if (next.size == k) break
+                }
+                if (finished.size >= k || next.isEmpty()) {
+                    if (step == 0) closeables += result else result.close()
+                    break
+                }
+                while (next.size < k) next += Triple(next[0].first, next[0].second, Double.NEGATIVE_INFINITY)
+
+                // Decoder K/V'yi seçilen ışınların sırasına göre yeniden diz; encoder K/V ilk adımdan kalır
+                val order = IntArray(k) { next[it].first }
+                val newGathered = ArrayList<OnnxTensor>()
+                for (i in 1 until outputNames.size) {
+                    val name = outputNames[i]
+                    val key = name.replace("present", "past_key_values")
+                    val tensor = result.get(i) as OnnxTensor
+                    if (".decoder." in name) {
+                        val reordered = gatherBeams(environment, tensor, order)
+                        newGathered += reordered
+                        past[key] = reordered
+                    } else if (step == 0) {
+                        past[key] = tensor
+                    }
+                }
+                gathered = newGathered
+                if (step == 0) closeables += result else result.close()
+
+                sequences = List(k) { sequences[next[it].first] + next[it].second }
+                tokens = IntArray(k) { next[it].second }
+                scores = DoubleArray(k) { next[it].third }
+            }
+            gathered.forEach { runCatching { it.close() } }
+
+            if (finished.isEmpty()) {
+                for (b in 0 until k) if (scores[b] > Double.NEGATIVE_INFINITY) finished += scores[b] / maxOf(1, sequences[b].size) to sequences[b]
+            }
+            val best = finished.maxByOrNull { it.first }?.second ?: return ""
+            val output = best.toMutableList()
+            trimRepetition(output)
+            return tok.decode(output)
+        } finally {
+            closeables.asReversed().forEach { runCatching { it.close() } }
+        }
+    }
+
+    /** Bir ışının logitlerinden en büyük [count] token (pad/unk hariç). */
+    private fun topIndices(logits: FloatBuffer, base: Int, vocab: Int, count: Int): IntArray {
+        val best = IntArray(count) { -1 }
+        val values = FloatArray(count) { Float.NEGATIVE_INFINITY }
+        for (i in 0 until vocab) {
+            if (i == PAD_ID || i == UNK_ID) continue
+            val v = logits.get(base + i)
+            if (v <= values[count - 1]) continue
+            var j = count - 1
+            while (j > 0 && values[j - 1] < v) {
+                values[j] = values[j - 1]
+                best[j] = best[j - 1]
+                j--
+            }
+            values[j] = v
+            best[j] = i
+        }
+        return best.filter { it >= 0 }.toIntArray()
+    }
+
+    /** [k, heads, seq, dim] tensörünün ışın satırlarını [order] sırasına göre kopyalar. */
+    private fun gatherBeams(environment: OrtEnvironment, tensor: OnnxTensor, order: IntArray): OnnxTensor {
+        val shape = tensor.info.shape
+        val source = tensor.floatBuffer
+        val block = source.remaining() / order.size
+        val target = FloatBuffer.allocate(source.remaining())
+        for (b in order) {
+            val slice = source.duplicate()
+            slice.position(b * block)
+            slice.limit(b * block + block)
+            target.put(slice)
+        }
+        target.rewind()
+        return OnnxTensor.createTensor(environment, target, shape)
+    }
+
+    /** Açgözlü (greedy) çözümleme, KV önbellekli birleşik decoder ile. */
+    private fun greedySentence(sentence: String): String {
         val environment = env ?: return ""
         val enc = encoder ?: return ""
         val dec = decoder ?: return ""
@@ -259,7 +415,6 @@ class OpusTranslationEngine(context: Context) : ITranslationEngine {
         encoder = null
         decoder = null
         tokenizer = null
-        corrector = null
     }
 
     override fun close() {
@@ -272,12 +427,13 @@ class OpusTranslationEngine(context: Context) : ITranslationEngine {
         const val MODEL_DIR_NAME = "opus_en_tr"
         private val REQUIRED_FILES = listOf("encoder_model.onnx", "decoder_model_merged.onnx", "source_pieces.tsv", "vocab.json")
 
-        private const val REAL_WORDS_ASSET = "en_words.txt"
         /** OPUS'un bazen kendiliğinden eklediği dil notu: "El Burro Heights (İngilizce)" */
         private val LANGUAGE_NOTE = Regex("\\s*\\((İngilizce|ingilizce|İspanyolca)\\)")
 
         private const val NUM_THREADS = 4
         private const val MAX_NEW_TOKENS = 128
+        /** Dikkatli çeviride aynı anda denenen yol sayısı (Helsinki'nin num_beams değeri) */
+        private const val BEAM_SIZE = 4
         /** Aynı kalıp bu kadar art arda gelirse döngü sayılır ("No, no, no, no, no" -> 5 "hayır" kalabilir) */
         private const val MAX_REPEATS = 6
         private const val DECODER_LAYERS = 6
@@ -322,19 +478,6 @@ private class MarianTokenizer(
         val sb = StringBuilder(t.length)
         for (c in t) sb.append(if (c in knownChars || c.isWhitespace()) c else ' ')
         return sb.toString().trim().split(WHITESPACE).joinToString(" ")
-    }
-
-    /** OPUS sözlüğündeki tam kelimelerden (sıklık puanlarıyla) OCR kelime düzelticisi kurar. */
-    fun createWordCorrector(realWords: Set<String>): OcrWordCorrector {
-        val words = HashMap<String, Float>()
-        val cased = HashSet<String>()
-        for ((piece, score) in pieceScores) {
-            if (!piece.startsWith(SPACE_MARK) || piece.length < 2) continue
-            val word = piece.substring(1)
-            if (word.all { it in 'a'..'z' }) words[word] = score
-            else if (word.length >= 2 && word[0] in 'A'..'Z') cased += word
-        }
-        return OcrWordCorrector(words, cased, realWords)
     }
 
     /** Kelime sözlükte tek parça ("▁word") olarak var mı? OCR bozukluğu olan kelimeler ("sorne") yok. */

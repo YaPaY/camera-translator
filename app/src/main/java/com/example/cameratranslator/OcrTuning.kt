@@ -16,4 +16,10 @@ object OcrTuning {
      * Geliştirici aracı: sürümde arayüzden kaldırıldı, gerektiğinde buradan true yapılır.
      */
     @Volatile var debugDumpEnabled: Boolean = false
+
+    /**
+     * OPUS "dikkatli çeviri": beam search (4 ışın). Çevirilerin bir kısmı belirgin şekilde daha doğal
+     * ama çeviri ~3 kat uzun sürüyor; varsayılan kapalı (OPUS ayarlarının içinde).
+     */
+    @Volatile var opusCarefulEnabled: Boolean = false
 }

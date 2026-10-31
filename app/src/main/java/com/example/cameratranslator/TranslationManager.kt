@@ -439,7 +439,7 @@ class CompositeTranslationEngine(
 
     private fun cacheKey(source: String): String {
         // Mod ve yön anahtarın parçası: başka motorun çevirisi bu moda sızmasın
-        return "${mode.name}|$isTrToEn|${useOfflinePlus()}|" + source.lowercase()
+        return "${mode.name}|$isTrToEn|${useOfflinePlus()}|${OcrTuning.opusCarefulEnabled}|" + source.lowercase()
             .replace(Regex("[^a-z0-9çğıöşü\\s]"), "")
             .replace(Regex("\\s+"), " ")
             .trim()
@@ -508,19 +508,43 @@ class CompositeTranslationEngine(
         }
         if (cached != null) return cached
 
+        // Önden çeviri isteği hâlâ yoldaysa ikinci istek atma, onun sonucunu bekle
+        // (onay geldiğinde Google cevabı çoğu zaman zaten gelmiş/gelmek üzere olur)
+        val pending = synchronized(cacheLock) {
+            if (key.isEmpty()) null
+            else inFlight.getOrPut(key) { scope.async { translateUncached(text) } }
+        }
+        if (pending != null) {
+            return try {
+                pending.await()
+            } finally {
+                synchronized(cacheLock) { if (inFlight[key] === pending) inFlight.remove(key) }
+            }
+        }
+        return translateUncached(text)
+    }
+
+    private val inFlight = HashMap<String, Deferred<String>>()
+
+    private suspend fun translateUncached(text: String): String {
+        val key = cacheKey(text)
+        // Google modlarında da OCR hataları düzeltilsin ("|am" -> "I am", "Im" -> "I'm"); OPUS kendi içinde yapıyor
+        val ocrFixed = if (isTrToEn) text else OcrTextFixer.fix(text)
+        // Google'ın da yanlış çevirdiği birkaç argo (hitap "dog", "nigga", "tricked out"); geri kalanını Google iyi biliyor
+        val forGoogle = if (isTrToEn) ocrFixed else SlangNormalizer.normalizeShared(ocrFixed)
         val result = when (mode) {
             TranslationMode.CLOUD -> {
-                google.translate(text)
+                google.translate(forGoogle)
             }
             TranslationMode.FREE -> {
-                free.translate(text)
+                free.translate(forGoogle)
             }
             TranslationMode.OFFLINE -> {
                 val plus = offlinePlus
                 if (plus != null && useOfflinePlus()) {
-                    plus.translate(text).ifBlank { offline.translate(text) }
+                    plus.translate(text).ifBlank { offline.translate(ocrFixed) }
                 } else {
-                    offline.translate(text)
+                    offline.translate(ocrFixed)
                 }
             }
         }
@@ -535,10 +559,11 @@ class CompositeTranslationEngine(
         return ""
     }
 
-    override fun isKnownWord(word: String): Boolean = offlinePlus?.isKnownWord(word) == true
+    override fun isKnownWord(word: String): Boolean = OcrTextFixer.isKnownWord(word)
 
-    // Yalnızca OPUS: internetli motorlarda önden çeviri gereksiz istek/kota harcar
-    override val canPretranslate: Boolean get() = useOfflinePlus()
+    // OPUS ve ücretsiz Google: altyazı onaylanmadan çeviri başlar, onayda sonuç hazırdır.
+    // Google Cloud hariç: önden istekler kullanıcının ücretli kotasını harcardı.
+    override val canPretranslate: Boolean get() = useOfflinePlus() || mode == TranslationMode.FREE
 
     override fun close() {
         google.close()

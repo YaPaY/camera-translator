@@ -30,7 +30,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
@@ -90,7 +89,9 @@ class MainActivity : ComponentActivity() {
         settingsManager = SettingsManager(this)
         OcrDebugDumper.init(this)
         OfflineModelDownloader.init(this)
+        OcrTextFixer.init(this)
         OcrTuning.textMaskEnabled = settingsManager.getOcrTextMaskEnabled()
+        OcrTuning.opusCarefulEnabled = settingsManager.getOpusCarefulEnabled()
         OcrTuning.centerOnlyEnabled = settingsManager.getOcrCenterOnlyEnabled()
         speechManager = SpeechManager(this)
         speechManager.setEnabled(settingsManager.getTtsEnabled())
@@ -155,16 +156,6 @@ class MainActivity : ComponentActivity() {
             var availableUpdate by remember { mutableStateOf<UpdateChecker.ReleaseInfo?>(null) }
             LaunchedEffect(Unit) {
                 availableUpdate = UpdateChecker.checkOnLaunch(settingsManager)
-            }
-
-            // İlk açılışta (model yoksa) bir kereliğine OPUS indirme önerisi
-            var showOpusPrompt by remember {
-                mutableStateOf(
-                    !settingsManager.getOpusPromptShown() &&
-                        OfflineModelDownloader.state.value !is OfflineModelDownloader.State.Installed &&
-                        // eski konumdan taşınıyorsa model zaten var
-                        OfflineModelDownloader.state.value !is OfflineModelDownloader.State.Verifying
-                )
             }
 
             var isSplashVisible by remember { mutableStateOf(!hasShownAppLaunchSplash) }
@@ -420,43 +411,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // OPUS önerisi: logodan ve (varsa) güncelleme penceresinden sonra, bir kez
-                    if (showOpusPrompt && !isSplashVisible && availableUpdate == null) {
-                        val closePrompt: () -> Unit = {
-                            settingsManager.saveOpusPromptShown()
-                            showOpusPrompt = false
-                        }
-                        val totalMb = OfflineModelDownloader.totalBytes / 1_000_000
-                        AlertDialog(
-                            onDismissRequest = closePrompt,
-                            title = { Text("⚡ OPUS ile internetsiz çeviri") },
-                            text = {
-                                Text(
-                                    "OPUS, çeviriyi tamamen telefonunuzda yapan ücretsiz bir çeviri motorudur. " +
-                                        "Bir kez indirin ($totalMb MB), sonra internet, API anahtarı veya ücret olmadan çalışır. " +
-                                        "Argo ve deyimlerde Google Translate kadar doğru olmayabilir.\n\n" +
-                                        "İstemezseniz Google Translate ile de kullanabilirsiniz; OPUS'u daha sonra Ayarlar'dan indirebilirsiniz."
-                                )
-                            },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    closePrompt()
-                                    if (OfflineModelDownloader.isOnMeteredNetwork(this@MainActivity)) {
-                                        // Mobil veride Ayarlar'daki İndir butonu önce onay ister
-                                        currentScreen = Screen.SETTINGS
-                                    } else {
-                                        OfflineModelDownloader.start()
-                                        Toast.makeText(
-                                            this@MainActivity,
-                                            "OPUS indiriliyor. İlerlemeyi Ayarlar'dan takip edebilirsiniz.",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                }) { Text("Şimdi indir") }
-                            },
-                            dismissButton = { TextButton(onClick = closePrompt) { Text("Daha sonra") } }
-                        )
-                    }
                 }
             }
         }
@@ -679,8 +633,9 @@ class MainActivity : ComponentActivity() {
                         is OfflineModelDownloader.State.Downloading ->
                             "⚡ OPUS modeli indiriliyor… %${(m.progress * 100).toInt()}"
                         is OfflineModelDownloader.State.Verifying -> "⚡ OPUS modeli doğrulanıyor…"
-                        else -> "⚡ OPUS modeli yüklü değil.\nAyarlar → OPUS Çeviri Motoru'ndan bir kez indirin (355 MB). " +
-                            "O zamana kadar standart offline çeviri kullanılır."
+                        else -> "⚡ OPUS çeviri motoru henüz indirilmedi.\n" +
+                            "Dilerseniz Ayarlar'dan tek seferlik indirebilirsiniz (355 MB). " +
+                            "O zamana kadar standart çevrimdışı çeviri kullanılır."
                     }
                 } else ""
 

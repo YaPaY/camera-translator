@@ -305,6 +305,22 @@ class OcrWordCorrector(
     }
 
     companion object {
+        /**
+         * TV fontundaki "I" sık sık "|" okunur: "| hate", "|'m", "|am" (boşluk da kaybolmuş).
+         * Sözlük gerektirmez; her çeviri modunda (Google dahil) kullanılır.
+         */
+        fun fixPipes(text: String): String {
+            if ('|' !in text) return text
+            return text
+                .replace(PIPE_APOSTROPHE, "I")
+                .replace(PIPE_WORD) { "I " + it.groupValues[1] }
+                .replace(STANDALONE_PIPE, "I")
+        }
+
+        // "|'m", "|-| demand" (kekeleme: I-I demand)
+        private val PIPE_APOSTROPHE = Regex("(?<![\\p{L}\\d])\\|(?=['’-])|(?<=-)\\|(?![\\p{L}\\d])")
+        private val PIPE_WORD = Regex("(?<![\\p{L}\\d])\\|(\\p{Ll}+)")
+        private val STANDALONE_PIPE = Regex("(?<!\\S)\\|(?!\\S)")
         private val SPACES = Regex("\\s+")
         private val TOKEN = Regex("^([^A-Za-z0-9']*)([A-Za-z0-9']+)([^A-Za-z0-9']*)$")
         private const val COMMON_RANK = 12_000
