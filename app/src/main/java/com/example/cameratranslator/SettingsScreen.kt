@@ -528,8 +528,9 @@ fun SettingsScreen(
                 Slider(
                     value = subtitleFontSize,
                     onValueChange = { onSubtitleFontSizeChange(it) },
-                    valueRange = 24f..80f,
-                    steps = 27,
+                    // 2 sp adımlarla 16–80 (24 sp bazılarına büyük geliyordu)
+                    valueRange = 16f..80f,
+                    steps = 31,
                     modifier = Modifier.fillMaxWidth()
                 )
 
