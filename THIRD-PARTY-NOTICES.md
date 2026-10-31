@@ -31,6 +31,13 @@ Camera Translator'ın kaynak kodu [MIT lisansı](LICENSE.md) ile yayımlanır. U
 - **Lisans:** [Creative Commons Attribution-ShareAlike 4.0 International (CC-BY-SA 4.0)](https://creativecommons.org/licenses/by-sa/4.0/)
 - **Yapılan değişiklikler:** Sıklık sayıları çıkarılmış; OPUS sözlüğünde zaten olan kelimeler, 4 harften kısa kelimeler ve listede bulunan OCR hataları (ör. `lt`, `dont`, `ofthe`) ayıklanmıştır. Ortaya çıkan liste de CC-BY-SA 4.0 lisansıyla paylaşılır.
 
+## 🔗 Kelime çifti sıklıkları — OpenSubtitles (OPUS)
+
+- **Dosyalar:** `app/src/main/assets/ocr_bigrams.bin`, `ocr_unigrams.tsv` (OCR düzelticisinin bağlam kontrolü için)
+- **Kaynak:** [OPUS OpenSubtitles v2018](https://opus.nlpl.eu/OpenSubtitles/corpus/version/OpenSubtitles) İngilizce altyazılarının ilk 12 milyon satırı
+- **İçerik:** Yalnızca kelime ve kelime çifti sayıları vardır (çiftler 64 bitlik özet olarak saklanır); altyazı metinlerinin kendisi yoktur ve bu sayılardan geri elde edilemez.
+- **Atıf:** P. Lison and J. Tiedemann. 2016. *OpenSubtitles2016: Extracting Large Parallel Corpora from Movie and TV Subtitles.* In Proceedings of the 10th International Conference on Language Resources and Evaluation (LREC 2016). — http://www.opensubtitles.org/
+
 ---
 
 ## Yazılım kütüphaneleri

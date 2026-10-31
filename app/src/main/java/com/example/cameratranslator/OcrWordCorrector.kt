@@ -40,6 +40,60 @@ class OcrWordCorrector(
         return out.joinToString(" ")
     }
 
+    /**
+     * Bağlam düzeltmesi ([correct] sonrası): hâlâ bilinmeyen ya da zayıf düzeltilmiş kelimeler için yalnızca
+     * OCR'a özgü adaylar (düşmüş harf eklemek, görsel olarak benzer harf) denenir. Aday, iki komşusuyla da
+     * altyazılarda gerçekten birlikte geçiyorsa ve mevcut sonuçtan çok daha olasıysa seçilir:
+     * "to very the body" -> verify, "my ife" -> life, "late fortress" -> forties, "get hom" -> home.
+     * 1400+ gerçek altyazıda 7 satırı değiştirdi (6 doğru). Büyük harfli kelimeler (isimler) atlanır.
+     */
+    fun correctInContext(raw: String, corrected: String, model: BigramModel): String {
+        val rawTokens = raw.split(SPACES).filter { it.isNotEmpty() }
+        val out = corrected.split(SPACES).filter { it.isNotEmpty() }.toMutableList()
+        if (rawTokens.size != out.size) return corrected
+        for (i in rawTokens.indices) {
+            val match = TOKEN.matchEntire(rawTokens[i]) ?: continue
+            val (pre, word, post) = match.destructured
+            val lower = word.lowercase()
+            if (!word.all { it.code < 128 } || lower.length <= 2 || '\'' in lower || word.any { it.isUpperCase() }) continue
+            if (isKnown(lower) || lower in scores) continue
+            val current = contextKey(out[i])
+            if ('\'' in out[i] || current in confusionVariants(lower)) continue
+            val prev = if (i == 0 || rawTokens[i - 1].last() in ".!?") "<s>" else contextKey(out[i - 1])
+            val next = if (i == rawTokens.lastIndex || post.lastOrNull()?.let { it in ".!?" } == true) "</s>"
+                else contextKey(rawTokens[i + 1])
+            val normalized = lower.replace('0', 'o').replace('1', 'l')
+            var best: String? = null
+            var bestScore = model.score(prev, current, next) + CONTEXT_MARGIN
+            for (candidate in ocrCandidates(normalized)) {
+                if (model.bigram(prev, candidate) < MIN_PAIR_COUNT || model.bigram(candidate, next) < MIN_PAIR_COUNT) continue
+                val s = model.score(prev, candidate, next) + COMMONNESS_WEIGHT * model.commonness(candidate)
+                if (s > bestScore) {
+                    best = candidate
+                    bestScore = s
+                }
+            }
+            if (best != null && best != current) out[i] = pre + best + post
+        }
+        return out.joinToString(" ")
+    }
+
+    /** Düşmüş harf eklenmiş ya da görsel olarak benzer harfle değiştirilmiş gerçek kelimeler (isimler hariç). */
+    private fun ocrCandidates(word: String): Set<String> {
+        val out = HashSet<String>()
+        fun consider(v: String) {
+            if (v in scores || (v in realWords && v.replaceFirstChar { it.uppercaseChar() } !in casedWords)) out += v
+        }
+        for (i in 0..word.length) for (c in 'a'..'z') consider(word.substring(0, i) + c + word.substring(i))
+        for (i in word.indices) for (c in 'a'..'z') {
+            if ((word[i] to c) in SIMILAR_LETTERS) consider(word.substring(0, i) + c + word.substring(i + 1))
+        }
+        return out
+    }
+
+    private fun contextKey(token: String): String =
+        token.lowercase().trim('.', ',', '!', '?', ';', ':', '"', '\'', '(', ')', '-').ifEmpty { "<u>" }
+
     /** Cümle ortasında büyük harfle okunan It/If/In/Is: "the way It was" -> "the way it was". */
     private fun lowerMidSentenceIt(tokens: List<String>): List<String> {
         val out = tokens.toMutableList()
@@ -361,7 +415,7 @@ class OcrWordCorrector(
             "oh", "ohh", "uh", "uhh", "um", "hmm", "ah", "ahh", "huh", "whoa", "wow", "ok", "okay",
             "nah", "yep", "yup", "hey", "shh", "ugh", "yo", "ya", "homie", "homies", "dawg", "bro", "cuz", "fam",
             "argh", "aargh", "ew", "eww", "yikes", "nope", "gee", "jeez", "damn", "dammit", "goddamn", "puke",
-            "kinda", "sorta", "gotcha", "wassup", "sup", "lol", "anus", "rappel", "doke", "okey"
+            "kinda", "sorta", "gotcha", "wassup", "sup", "lol", "anus", "rappel", "doke", "okey", "oof", "sho"
         )
         private val FUNCTION_WORDS = setOf(
             "a", "i", "of", "to", "in", "on", "at", "is", "it", "be", "we", "he", "me", "my", "do", "so",
@@ -397,6 +451,16 @@ class OcrWordCorrector(
             "wanna", "should", "would"
         )
         private val MID_SENTENCE_CAPS = setOf("It", "If", "In", "Is", "It's")
+        /** Bağlam düzeltmesinde aday, mevcut sonuçtan en az 30 kat olası olmalı (ln 30) */
+        private val CONTEXT_MARGIN = kotlin.math.ln(30.0)
+        private const val MIN_PAIR_COUNT = 2
+        private const val COMMONNESS_WEIGHT = 0.15
+        /** TV fontunda birbirine benzeyen harfler (okunan, doğru) */
+        private val SIMILAR_LETTERS = setOf(
+            'l' to 'i', 'i' to 'l', 'j' to 'y', 'y' to 'j', 'y' to 'v', 'v' to 'y', 'c' to 'e', 'e' to 'c',
+            'a' to 'o', 'o' to 'a', 'n' to 'h', 'h' to 'n', 'u' to 'v', 'v' to 'u', 't' to 'f', 'f' to 't',
+            'i' to 'j', 'j' to 'i', 'l' to 't', 't' to 'l', 'o' to 'e', 'e' to 'o'
+        )
         /** Kısaltma "'ll" okunuşu kısaltmaya yapışmış: "JBIl", "FBIll" */
         private val ACRONYM_LL = Regex("([A-Z]{2,4})(?:Il|ll|IIl)")
         /** Önceki kelimeye yapışık okunan sık kelimeler ("chasedyou", "toldthem") */

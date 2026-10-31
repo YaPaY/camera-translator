@@ -13,11 +13,13 @@ import kotlinx.coroutines.launch
  * Sözlük uygulamanın içinde gelir (OPUS modeli indirilmeden de çalışır):
  *  - assets/ocr_vocab.tsv: OPUS-MT sözlüğündeki ~24 bin tam kelime ve sıklık puanları
  *  - assets/en_words.txt: OPUS sözlüğünde olmayan gerçek kelimeler (FrequencyWords)
+ *  - assets/ocr_bigrams.bin + ocr_unigrams.tsv: altyazılardaki kelime çifti sıklıkları (bağlam düzeltmesi)
  */
 object OcrTextFixer {
     private const val TAG = "OcrTextFixer"
 
     @Volatile private var corrector: OcrWordCorrector? = null
+    @Volatile private var bigrams: BigramModel? = null
     @Volatile private var lowerWords: Set<String> = emptySet()
     @Volatile private var casedWords: Set<String> = emptySet()
 
@@ -45,6 +47,9 @@ object OcrTextFixer {
                 casedWords = cased
                 corrector = OcrWordCorrector(scores, cased, realWords)
                 Log.d(TAG, "Loaded ${scores.size} words, ${cased.size} names, ${realWords.size} extra words")
+                // Kelime çifti tablosu (~9 MB) ayrı yüklenir; gelmezse düzeltici bağlamsız çalışmaya devam eder
+                bigrams = BigramModel.load(assets)
+                Log.d(TAG, "Context model loaded")
             } catch (e: Exception) {
                 Log.e(TAG, "OCR vocabulary could not be loaded", e)
             }
@@ -54,7 +59,11 @@ object OcrTextFixer {
     /** "|" -> I ve kelime düzeltici. Sözlük henüz yüklenmediyse yalnızca "|" düzeltilir. */
     fun fix(text: String): String {
         val piped = OcrWordCorrector.fixPipes(text)
-        return corrector?.correct(piped) ?: piped
+        val fixer = corrector ?: return piped
+        val corrected = fixer.correct(piped)
+        // Komşu kelimelere bakan ikinci tur (ör. "to very the" -> "to verify the")
+        val model = bigrams ?: return corrected
+        return fixer.correctInContext(piped, corrected, model)
     }
 
     /** Kelime sözlükte tek parça olarak var mı (stabilizer'ın "temiz okuma" kontrolü için). */
