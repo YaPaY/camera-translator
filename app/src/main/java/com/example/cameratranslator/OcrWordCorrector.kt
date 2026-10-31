@@ -90,6 +90,9 @@ class OcrWordCorrector(
             return pre + (if (sentenceStart) lower.replaceFirstChar { it.uppercaseChar() } else lower) + post
         }
         if (stem.isEmpty() || isKnown(stem.lowercase()) || stem.length <= 2 || allCaps) return token
+        // Kısaltmayla bitişik okunan kelime: "Donttell" -> Don't tell, "Aintthere" -> Ain't there; "JBIl" -> JB'll
+        splitContraction(word)?.let { return pre + it + post }
+        ACRONYM_LL.matchEntire(word)?.let { return pre + it.groupValues[1] + "'ll" + post }
         // "I" kelimeye yapışmış: Ihate -> I hate, Iwonder -> I wonder (cümle ortasında da; Ivan gibi isimler hariç)
         if (word.length >= 4 && word[0] == 'I' && word.drop(1).all { it.isLowerCase() } && word !in casedWords &&
             isKnown(word.substring(1)) && rankOf(word.substring(1)) < COMMON_RANK
@@ -177,6 +180,11 @@ class OcrWordCorrector(
             for (variant in confusionVariants(word)) candidates += edits1(variant)
             best(candidates).let { if (acceptable(it)) return it }
         }
+        // Çekimli kelime + yapışık zamir: "chasedyou" -> chased you (bestSplit yalnızca sözlükteki tam kelimelere bakıyor)
+        for (tail in TRAILING_WORDS) {
+            val head = word.dropLast(tail.length)
+            if (word.endsWith(tail) && head.length >= 4 && isKnown(head)) return "$head $tail"
+        }
         return null
     }
 
@@ -194,6 +202,17 @@ class OcrWordCorrector(
             ) return true
         }
         return false
+    }
+
+    private fun splitContraction(word: String): String? {
+        val lower = word.lowercase()
+        for (k in 3..lower.length - 2) {
+            val fixed = CONTRACTIONS[lower.substring(0, k)] ?: continue
+            val rest = lower.substring(k)
+            if (!isKnown(rest) || rankOf(rest) >= COMMON_RANK) continue
+            return (if (word[0].isUpperCase()) fixed.replaceFirstChar { it.uppercaseChar() } else fixed) + " " + rest
+        }
+        return null
     }
 
     /** Tek harf/karışıklık farkıyla sözlükteki tek bir isme uyuyorsa o isim; birden çoksa harf eklenmiş olan. */
@@ -216,6 +235,8 @@ class OcrWordCorrector(
     private fun fixIGlyph(word: String, sentenceStart: Boolean, nextToken: String?): String? {
         val nextIsWord = nextToken?.firstOrNull()?.isLetter() == true
         if (word in LONE_I && nextIsWord) return "I"
+        // "Nol don't know" -> No I don't know
+        if (word == "Nol" && nextToken?.lowercase()?.trimEnd(',', '.')?.let { it in I_VERBS } == true) return "No I"
         SHORT_FIXES[word]?.let { return it }
         if (word in I_LL && nextIsWord) return "I'll"
         // Baştaki I tamamen kaybolmuş: "ll go", "'m on my way", "ld say", "ve never done"
@@ -376,6 +397,10 @@ class OcrWordCorrector(
             "wanna", "should", "would"
         )
         private val MID_SENTENCE_CAPS = setOf("It", "If", "In", "Is", "It's")
+        /** Kısaltma "'ll" okunuşu kısaltmaya yapışmış: "JBIl", "FBIll" */
+        private val ACRONYM_LL = Regex("([A-Z]{2,4})(?:Il|ll|IIl)")
+        /** Önceki kelimeye yapışık okunan sık kelimeler ("chasedyou", "toldthem") */
+        private val TRAILING_WORDS = listOf("you", "the", "them", "him", "her", "me", "it", "to")
         /** I'll'ın okunuşları ("Next Il have", "lll just"); küçük harfli "ill" (hasta) değil */
         private val I_LL = setOf("Il", "Ill", "IIl", "lll")
         /** Bunlardan sonra gelen "1" aslında "I" ("Did 1", "What if 1") */

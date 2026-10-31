@@ -377,7 +377,10 @@ class TextRecognitionAnalyzer(
         val words = text.split(SPACES_REGEX).filter { it.isNotBlank() }
         if (text.length > 15 && words.size < 2) return false
         // Harita/menü tuş ipuçları: "Zoom LT RT Select Blip", "Browse LB RB"
-        if (words.count { it.trim { c -> !c.isLetter() } in BUTTON_HINTS } >= 2) return false
+        val cores = words.map { it.trim { c -> !c.isLetter() } }
+        if (cores.count { it in BUTTON_HINTS } >= 2) return false
+        // Tuşlardan biri yanlış okunsa da ("Zoom LT AT Select Blip") harita ipucu kelimesiyle birlikteyse at
+        if (cores.any { it in BUTTON_HINTS } && cores.any { it.lowercase() in MAP_HINT_WORDS }) return false
 
         var validWords = 0
         for (word in words) {
@@ -415,6 +418,7 @@ class TextRecognitionAnalyzer(
         private const val FILTER_BELOW_CONFIDENCE = 0.75f
         /** Oyun kumandası tuş adları (büyük harfle, tek başına) */
         private val BUTTON_HINTS = setOf("LT", "RT", "LB", "RB", "LS", "RS")
+        private val MAP_HINT_WORDS = setOf("zoom", "blip", "blp", "waypoint", "legend", "browse")
         private val SENTENCE_END_PUNCTUATION = Regex("[.!?…][\"')]*\\s*$")
 
         private val SPACES_REGEX = Regex("\\s+")
