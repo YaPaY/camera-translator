@@ -69,7 +69,7 @@ Uygulama ilk açılışta OPUS modunda başlar. OPUS İngilizce → Türkçe çe
 ## 📲 Kurulum ve İndirme
 
 1. En güncel imzalı APK dosyasını [GitHub Releases](https://github.com/crosswindfighter/camera-translator/releases) sayfamızdan indirin.
-2. Telefonunuza indirdiğiniz APK dosyasını (ör. `camera-translator-v1.0.2.apk`) kurun.
+2. Telefonunuza indirdiğiniz APK dosyasını (ör. `camera-translator-v1.0.5.apk`) kurun.
 3. Uygulamayı açıp kamera iznini verin. İnternetsiz çeviri isterseniz ilk açılışta **⚡ OPUS** çeviri motorunu bir kez indirin (355 MB) — ya da dilerseniz Google Translate ile hemen başlayın.
 4. Oyundaki altyazı alanını seçin ve çevirinin tadını çıkarın! Yeni sürümler yayınlandığında uygulama sizi bir kez bilgilendirir.
 
