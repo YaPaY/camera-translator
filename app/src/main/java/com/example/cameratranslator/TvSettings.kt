@@ -109,7 +109,9 @@ object TvCaptureStatus {
         /** OCR alanı şeffaf: görüntü donanım katmanında, ekran yakalamaya hiç girmiyor */
         TRANSPARENT,
         /** Ekran yakalamadan hiç kare gelmiyor */
-        NO_FRAMES
+        NO_FRAMES,
+        /** Önce kare geliyordu, artık gelmiyor: görüntü donuk (HDMI katmanı yakalamaya hiç girmiyor olabilir) */
+        STALE
     }
 
     data class Snapshot(
@@ -131,6 +133,9 @@ object TvCaptureStatus {
     /** OCR alanının son küçük önizlemesi (TV ekranında "yakalama gerçekten ne görüyor" kontrolü için) */
     val preview = MutableStateFlow<android.graphics.Bitmap?>(null)
 
+    /** TV uygulamasının kendi ekranı öndeyken OCR yapılmaz (kendi yazılarımızı çevirmeyelim) */
+    @Volatile var appInForeground: Boolean = false
+
     fun update(transform: (Snapshot) -> Snapshot) {
         state.value = transform(state.value)
     }
@@ -142,5 +147,6 @@ object TvCaptureStatus {
         Verdict.BLACK -> "Görüntü SİYAH geliyor: HDMI girişi yakalanamıyor (Codec yöntemini deneyin)"
         Verdict.TRANSPARENT -> "Görüntü ŞEFFAF geliyor: HDMI donanım katmanında (Codec yöntemini deneyin)"
         Verdict.NO_FRAMES -> "Kare gelmiyor: ekran yakalama engellenmiş olabilir"
+        Verdict.STALE -> "Yeni kare gelmiyor: görüntü donuk, HDMI girişi yakalanamıyor olabilir"
     }
 }

@@ -374,7 +374,7 @@ class TvTranslationService : Service() {
         }
 
         val an = analyzer
-        if (sample.blank || an == null || !an.canAcceptFrame() || !an.submitBitmap(bitmap, area)) {
+        if (sample.blank || TvCaptureStatus.appInForeground || an == null || !an.canAcceptFrame() || !an.submitBitmap(bitmap, area)) {
             bitmap.recycle()
         }
     }
@@ -440,6 +440,7 @@ class TvTranslationService : Service() {
                 val verdict = when {
                     lastFrameAt == 0L && now - startedAt > NO_FRAME_MS -> TvCaptureStatus.Verdict.NO_FRAMES
                     lastFrameAt == 0L -> TvCaptureStatus.Verdict.STARTING
+                    !TvCaptureStatus.appInForeground && now - lastFrameAt > STALE_MS -> TvCaptureStatus.Verdict.STALE
                     blankSince != 0L && now - blankSince > BLANK_VERDICT_MS ->
                         if (lastTransparent) TvCaptureStatus.Verdict.TRANSPARENT else TvCaptureStatus.Verdict.BLACK
                     else -> TvCaptureStatus.Verdict.OK
@@ -523,6 +524,8 @@ class TvTranslationService : Service() {
         private const val BLANK_MAX_LUMA = 10
         private const val BLANK_VERDICT_MS = 4000L
         private const val NO_FRAME_MS = 4000L
+        /** Bu kadar süre yeni kare gelmezse görüntü donuk sayılır (altyazı değişmeden 3 sn çok nadir) */
+        private const val STALE_MS = 3000L
         private const val HIDE_AFTER_EMPTY_MS = 1500L
 
         fun start(context: Context, resultCode: Int, data: Intent) {

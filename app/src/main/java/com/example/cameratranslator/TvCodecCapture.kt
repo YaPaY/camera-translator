@@ -46,8 +46,8 @@ class TvCodecCapture(
             setInteger(MediaFormat.KEY_BIT_RATE, BIT_RATE)
             setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)
             setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
-            // Ekran değişmese de kare üretilsin (sabit altyazı ekranda kalırken)
-            setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER, 200_000L)
+            // KEY_REPEAT_PREVIOUS_FRAME_AFTER bilerek YOK: HDMI'ya geçince sanal ekrana kare gelmiyorsa
+            // kodlayıcı son kareyi (uygulama ekranı) tekrarlıyor, teşhis yanlışlıkla "çalışıyor" diyordu.
         }
         encoder.setCallback(encoderCallback, handler)
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)

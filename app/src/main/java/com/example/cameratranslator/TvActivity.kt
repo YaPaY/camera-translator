@@ -103,6 +103,12 @@ class TvActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         overlayGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
+        TvCaptureStatus.appInForeground = true
+    }
+
+    override fun onPause() {
+        TvCaptureStatus.appInForeground = false
+        super.onPause()
     }
 
     private fun startTranslation() {
@@ -289,7 +295,7 @@ class TvActivity : ComponentActivity() {
                 val verdictColor = when (status.verdict) {
                     TvCaptureStatus.Verdict.OK -> Color(0xFF4ADE80)
                     TvCaptureStatus.Verdict.BLACK, TvCaptureStatus.Verdict.TRANSPARENT,
-                    TvCaptureStatus.Verdict.NO_FRAMES -> Color(0xFFF87171)
+                    TvCaptureStatus.Verdict.NO_FRAMES, TvCaptureStatus.Verdict.STALE -> Color(0xFFF87171)
                     else -> Color(0xFFCBD5E1)
                 }
                 Text("Durum: ${TvCaptureStatus.verdictText(status.verdict)}", color = verdictColor, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
