@@ -85,7 +85,7 @@ adb shell appops set com.example.cameratranslator SYSTEM_ALERT_WINDOW allow
 
 Son komut, ayar ekranı olmayan TV'lerde "diğer uygulamaların üzerinde göster" iznini verir.
 
-> ⚠️ **HDMI sınırı:** Birçok TV, HDMI girişini Android'in çizdiği ekranın altında ayrı bir donanım katmanında oynatır. Bu TV'lerde ekran yakalama HDMI görüntüsünü **siyah veya şeffaf** görür ve OCR yapılamaz. Uygulama bunu algılar ve teşhis satırında "SİYAH" / "ŞEFFAF" diye bildirir. Bu durumda çözüm bir **HDMI yakalama kartıdır** (Xbox → kart → TV, kart USB ile Android TV kutusuna). Xbox Cloud Gaming gibi TV'nin içinde çalışan uygulamalarda ekran yakalama genellikle çalışır.
+> ⚠️ **HDMI sınırı:** Birçok TV (ör. Philips), HDMI girişini Android'in çizdiği ekranın altında ayrı bir donanım katmanında oynatır; normal ekran yakalama bu görüntüyü **siyah** görür ve uygulama bunu teşhis satırında bildirir. Bu durumda TV ekranından **Yakalama yöntemi → Codec** seçip çeviriyi yeniden başlatın: bu yol ekranı bir video kodlayıcıdan geçirir ve bazı TV çipleri HDMI katmanını yalnızca bu yolda birleştirir. Codec ile de siyahsa TV, HDMI görüntüsünü uygulamalara vermiyordur; çözüm bir **HDMI yakalama kartıdır**. TV'nin kendi Android uygulamalarında (YouTube vb.) çeviri her iki yöntemle de çalışır; DRM'li uygulamalar (Netflix vb.) her zaman siyahtır.
 
 ---
 

@@ -61,6 +61,7 @@ class TvTranslationService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
     private var captureThread: HandlerThread? = null
+    private var codecCapture: TvCodecCapture? = null
 
     private lateinit var overlay: TvOverlay
     private lateinit var settingsManager: SettingsManager
@@ -265,25 +266,41 @@ class TvTranslationService : Service() {
         val thread = HandlerThread("TvCapture").also { it.start() }
         captureThread = thread
         val handler = Handler(thread.looper)
+        val mode = TvSettings.config.value.captureMode
 
-        val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-        reader.setOnImageAvailableListener({ r -> onImageAvailable(r) }, handler)
-        imageReader = reader
+        val surface = when (mode) {
+            TvSettings.CaptureMode.STANDARD -> {
+                val reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+                reader.setOnImageAvailableListener({ r -> onImageAvailable(r) }, handler)
+                imageReader = reader
+                reader.surface
+            }
+            TvSettings.CaptureMode.CODEC -> {
+                val codec = TvCodecCapture(
+                    width, height, handler,
+                    onFrame = { image -> onCodecFrame(image, width, height) },
+                    onError = { message -> mainHandler.post { TvCaptureStatus.update { it.copy(error = message) } } }
+                )
+                codec.start()
+                codecCapture = codec
+                codec.inputSurface
+            }
+        }
 
         virtualDisplay = mp.createVirtualDisplay(
             "CameraTranslatorTv",
             width, height, density,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            reader.surface, null, handler
+            surface, null, handler
         )
         startedAt = SystemClock.elapsedRealtime()
         TvCaptureStatus.update {
             it.copy(
                 running = true, verdict = TvCaptureStatus.Verdict.STARTING,
-                captureWidth = width, captureHeight = height, error = null
+                captureWidth = width, captureHeight = height, captureMode = mode, error = null
             )
         }
-        Log.d(TAG, "Ekran yakalama başladı ${width}x$height @$density dpi")
+        Log.d(TAG, "Ekran yakalama başladı ($mode) ${width}x$height @$density dpi")
     }
 
     /** Ekranın gerçek boyutu, genişlik en fazla 1920 (4K panelde OCR için gereksiz büyük kare olmasın) */
@@ -316,32 +333,49 @@ class TvTranslationService : Service() {
             lastFrameAt = now
             if (now - lastProcessedAt < FRAME_INTERVAL_MS) return
             lastProcessedAt = now
-            framesInWindow++
-
             val bitmap = image.toBitmap() ?: return
-            val area = ocrArea
-            val sample = sampleArea(bitmap, area)
-            lastMaxLuma = sample.maxLuma
-            lastTransparent = sample.transparent
-            if (sample.blank) {
-                if (blankSince == 0L) blankSince = now
-            } else {
-                blankSince = 0L
-            }
-
-            if (now - lastPreviewAt > PREVIEW_INTERVAL_MS) {
-                lastPreviewAt = now
-                publishPreview(bitmap, area)
-            }
-
-            val an = analyzer
-            if (sample.blank || an == null || !an.canAcceptFrame() || !an.submitBitmap(bitmap, area)) {
-                bitmap.recycle()
-            }
+            processFrame(bitmap, now)
         } catch (e: Exception) {
             Log.e(TAG, "Kare işlenemedi", e)
         } finally {
             image.close()
+        }
+    }
+
+    /** Codec yolu: çözülmüş YUV karesi (her kare gelir; OCR hızına göre seyreltilir) */
+    private fun onCodecFrame(image: Image, width: Int, height: Int) {
+        try {
+            val now = SystemClock.elapsedRealtime()
+            lastFrameAt = now
+            if (now - lastProcessedAt < FRAME_INTERVAL_MS) return
+            lastProcessedAt = now
+            processFrame(TvCodecCapture.lumaToBitmap(image, width, height), now)
+        } catch (e: Exception) {
+            Log.e(TAG, "Codec karesi işlenemedi", e)
+        }
+    }
+
+    /** Bitmap'in sahipliğini alır: OCR'a verilir ya da geri dönüştürülür. */
+    private fun processFrame(bitmap: Bitmap, now: Long) {
+        framesInWindow++
+        val area = ocrArea
+        val sample = sampleArea(bitmap, area)
+        lastMaxLuma = sample.maxLuma
+        lastTransparent = sample.transparent
+        if (sample.blank) {
+            if (blankSince == 0L) blankSince = now
+        } else {
+            blankSince = 0L
+        }
+
+        if (now - lastPreviewAt > PREVIEW_INTERVAL_MS) {
+            lastPreviewAt = now
+            publishPreview(bitmap, area)
+        }
+
+        val an = analyzer
+        if (sample.blank || an == null || !an.canAcceptFrame() || !an.submitBitmap(bitmap, area)) {
+            bitmap.recycle()
         }
     }
 
@@ -414,7 +448,7 @@ class TvTranslationService : Service() {
                 TvCaptureStatus.update { it.copy(verdict = verdict, fps = fps, maxLuma = lastMaxLuma) }
                 val s = TvCaptureStatus.state.value
                 overlay.showDiagnostics(
-                    "CT • ${TvCaptureStatus.verdictText(verdict)} • ${fps.roundToInt()} kare/sn • parlaklık ${s.maxLuma}" +
+                    "CT [${if (TvSettings.config.value.captureMode == TvSettings.CaptureMode.CODEC) "Codec" else "Normal"}] • ${TvCaptureStatus.verdictText(verdict)} • ${fps.roundToInt()} kare/sn • parlaklık ${s.maxLuma}" +
                         if (s.lastOcr.isNotBlank()) "\nOCR: ${s.lastOcr.take(80)}" else ""
                 )
             }
@@ -454,6 +488,8 @@ class TvTranslationService : Service() {
     override fun onDestroy() {
         runCatching { virtualDisplay?.release() }
         runCatching { imageReader?.close() }
+        runCatching { codecCapture?.release() }
+        codecCapture = null
         runCatching { projection?.stop() }
         captureThread?.quitSafely()
         virtualDisplay = null

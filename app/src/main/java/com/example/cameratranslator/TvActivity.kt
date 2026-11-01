@@ -259,6 +259,21 @@ class TvActivity : ComponentActivity() {
                     }
                 }
 
+                TvButton(
+                    if (config.captureMode == TvSettings.CaptureMode.CODEC) "Yakalama yöntemi: Codec (uyumluluk)"
+                    else "Yakalama yöntemi: Normal"
+                ) {
+                    TvSettings.update {
+                        it.copy(
+                            captureMode = if (it.captureMode == TvSettings.CaptureMode.CODEC) TvSettings.CaptureMode.STANDARD
+                            else TvSettings.CaptureMode.CODEC
+                        )
+                    }
+                    if (TvCaptureStatus.state.value.running) {
+                        Toast.makeText(this@TvActivity, "Çeviriyi durdurup yeniden başlatınca geçerli olur", Toast.LENGTH_LONG).show()
+                    }
+                }
+
                 TvButton(if (config.diagnostics) "Teşhis satırı: açık" else "Teşhis satırı: kapalı") {
                     TvSettings.update { it.copy(diagnostics = !it.diagnostics) }
                 }
@@ -281,7 +296,7 @@ class TvActivity : ComponentActivity() {
                 status.error?.let { Text("Hata: $it", color = Color(0xFFF87171)) }
                 if (status.running) {
                     Text(
-                        "Yakalama ${status.captureWidth}x${status.captureHeight} • ${status.fps.toInt()} kare/sn • OCR alanı en parlak nokta: ${status.maxLuma}",
+                        "Yakalama (${if (status.captureMode == TvSettings.CaptureMode.CODEC) "Codec" else "Normal"}) ${status.captureWidth}x${status.captureHeight} • ${status.fps.toInt()} kare/sn • OCR alanı en parlak nokta: ${status.maxLuma}",
                         color = Color(0xFFCBD5E1), fontSize = 14.sp
                     )
                 }
@@ -317,8 +332,9 @@ class TvActivity : ComponentActivity() {
                     "1. ▶ Çeviriyi başlat → ekran yakalama iznini onaylayın.\n" +
                         "2. Xbox'ın bağlı olduğu HDMI girişine geçin (yukarıdaki düğme ya da kumandadaki Input tuşu).\n" +
                         "3. Sol üstteki sarı teşhis satırı \"Yakalama çalışıyor\" diyorsa çeviriler altyazının hemen üstünde görünür.\n" +
-                        "4. \"SİYAH\" ya da \"ŞEFFAF\" diyorsa bu TV, HDMI görüntüsünü uygulamalara vermiyor: " +
-                        "HDMI yakalama kartı (Xbox → kart → TV, kart USB ile Android TV'ye) gerekir.",
+                        "4. \"SİYAH\" ya da \"ŞEFFAF\" diyorsa: Çeviriyi durdurun, \"Yakalama yöntemi\"ni Codec yapıp yeniden başlatın. " +
+                        "Bazı TV'ler HDMI görüntüsünü yalnızca bu yolda verir.\n" +
+                        "5. Codec ile de siyahsa bu TV HDMI görüntüsünü uygulamalara vermiyor: HDMI yakalama kartı gerekir.",
                     color = Color(0xFFCBD5E1), fontSize = 14.sp
                 )
                 if (!overlayGranted) {

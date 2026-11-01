@@ -22,6 +22,13 @@ fun Context.isTelevision(): Boolean {
  */
 object TvSettings {
 
+    enum class CaptureMode {
+        /** MediaProjection → ImageReader (hızlı, renkli) */
+        STANDARD,
+        /** MediaProjection → H.264 kodlayıcı → çözücü: ayrı donanım katmanını (HDMI) bazı TV'lerde görür */
+        CODEC
+    }
+
     data class Config(
         /** Ekranın altından itibaren OCR alanının yüksekliği (% ekran yüksekliği) */
         val ocrHeightPercent: Int = 22,
@@ -30,7 +37,8 @@ object TvSettings {
         /** Çeviri yazısının boyutu (sp) */
         val textSizeSp: Int = 30,
         /** Ekranın sol üstünde teşhis satırı (fps, siyah görüntü uyarısı, son OCR) */
-        val diagnostics: Boolean = true
+        val diagnostics: Boolean = true,
+        val captureMode: CaptureMode = CaptureMode.STANDARD
     ) {
         /** OCR alanı, ekran karesine göre normalize (0..1) */
         fun ocrArea(): RectF {
@@ -58,7 +66,10 @@ object TvSettings {
             ocrHeightPercent = p.getInt("ocr_height", d.ocrHeightPercent).coerceIn(MIN_HEIGHT, MAX_HEIGHT),
             sideMarginPercent = p.getInt("side_margin", d.sideMarginPercent).coerceIn(0, 30),
             textSizeSp = p.getInt("text_size", d.textSizeSp).coerceIn(MIN_TEXT, MAX_TEXT),
-            diagnostics = p.getBoolean("diagnostics", d.diagnostics)
+            diagnostics = p.getBoolean("diagnostics", d.diagnostics),
+            captureMode = runCatching {
+                CaptureMode.valueOf(p.getString("capture_mode", d.captureMode.name) ?: d.captureMode.name)
+            }.getOrDefault(d.captureMode)
         )
     }
 
@@ -76,6 +87,7 @@ object TvSettings {
             ?.putInt("side_margin", c.sideMarginPercent)
             ?.putInt("text_size", c.textSizeSp)
             ?.putBoolean("diagnostics", c.diagnostics)
+            ?.putString("capture_mode", c.captureMode.name)
             ?.apply()
     }
 }
@@ -105,6 +117,7 @@ object TvCaptureStatus {
         val verdict: Verdict = Verdict.IDLE,
         val captureWidth: Int = 0,
         val captureHeight: Int = 0,
+        val captureMode: TvSettings.CaptureMode = TvSettings.CaptureMode.STANDARD,
         val fps: Float = 0f,
         /** OCR alanındaki en parlak örnek (0..255) */
         val maxLuma: Int = 0,
@@ -126,8 +139,8 @@ object TvCaptureStatus {
         Verdict.IDLE -> "Kapalı"
         Verdict.STARTING -> "Başlatılıyor…"
         Verdict.OK -> "Yakalama çalışıyor"
-        Verdict.BLACK -> "Görüntü SİYAH geliyor: HDMI içeriği korumalı olabilir (aşağıya bakın)"
-        Verdict.TRANSPARENT -> "Görüntü ŞEFFAF geliyor: HDMI donanım katmanında, ekran yakalamaya girmiyor"
+        Verdict.BLACK -> "Görüntü SİYAH geliyor: HDMI girişi yakalanamıyor (Codec yöntemini deneyin)"
+        Verdict.TRANSPARENT -> "Görüntü ŞEFFAF geliyor: HDMI donanım katmanında (Codec yöntemini deneyin)"
         Verdict.NO_FRAMES -> "Kare gelmiyor: ekran yakalama engellenmiş olabilir"
     }
 }
