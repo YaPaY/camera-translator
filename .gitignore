@@ -21,3 +21,6 @@ local.properties
 
 
 
+
+# Sabit debug anahtarı (gizli değil; her CI derlemesi aynı imzayla güncellenebilsin)
+!app/ci-debug.keystore

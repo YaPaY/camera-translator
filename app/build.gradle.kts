@@ -28,6 +28,17 @@ android {
         }
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // Depodaki sabit debug anahtarı: her CI derlemesi aynı imzayı taşır,
+            // TV/telefonda "adb install -r" ile kaldırmadan güncellenebilir. (Gizli değildir.)
+            storeFile = file("ci-debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             optimization {
