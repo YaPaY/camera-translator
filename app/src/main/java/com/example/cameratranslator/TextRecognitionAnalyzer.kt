@@ -22,6 +22,7 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -100,6 +101,27 @@ class TextRecognitionAnalyzer(
         scope.launch {
             runOcr(previewBitmap, area, frameId)
         }
+    }
+
+    /**
+     * Kamera dışı kaynaklar (Android TV ekran yakalama) için giriş: kare doğrudan bitmap olarak gelir.
+     * Bitmap'in sahipliği alınır (iş bitince geri dönüştürülür). Analiz duraklatılmışsa veya
+     * 2 OCR zaten sürüyorsa kare atlanır ve false döner; bu durumda bitmap'i çağıran geri dönüştürür.
+     */
+    fun submitBitmap(bitmap: Bitmap, area: RectF): Boolean {
+        val frameId = frameCounter.incrementAndGet()
+        if (isPaused.get() || activeOcrTasks.get() >= 2) return false
+        activeOcrTasks.incrementAndGet()
+        scope.launch { runOcr(bitmap, area, frameId) }
+        return true
+    }
+
+    /** Analiz kuyruğu boşsa true (ekran yakalama gereksiz bitmap üretmesin). */
+    fun canAcceptFrame(): Boolean = !isPaused.get() && activeOcrTasks.get() < 2
+
+    fun close() {
+        scope.cancel()
+        recognizer.close()
     }
 
     private suspend fun runOcr(previewBitmap: Bitmap, area: RectF, frameId: Long) {

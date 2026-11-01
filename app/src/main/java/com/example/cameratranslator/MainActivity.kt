@@ -82,6 +82,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android TV'de kamera yok: ekran yakalama tabanlı TV ekranına geç
+        if (isTelevision()) {
+            startActivity(Intent(this, TvActivity::class.java))
+            finish()
+            return
+        }
         enableEdgeToEdge()
         hideSystemBars()
 
@@ -873,6 +879,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // TV'de onCreate erken çıkar (TvActivity'ye yönlendirir); kaynaklar hiç kurulmamıştır
+        if (!::speechManager.isInitialized) return
         speechManager.stop()
         speechManager.shutdown()
         translationManager.close()

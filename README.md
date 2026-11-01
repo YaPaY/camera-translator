@@ -66,6 +66,29 @@ Uygulama ilk açılışta OPUS modunda başlar. OPUS İngilizce → Türkçe çe
 
 ---
 
+## 📺 Android TV Modu (deneysel)
+
+Aynı APK Android TV / Google TV'ye kurulduğunda kamera yerine **ekran yakalama** ile çalışır: ekranın altındaki İngilizce yazıyı okur, Türkçeye çevirir ve çeviriyi altyazının hemen üstünde bir şeritte gösterir. OCR, stabilizer, OPUS/Google çeviri ve seslendirme telefon sürümüyle aynıdır.
+
+- TV ana ekranında **Camera Translator** kutusundan açılır, kumandayla kullanılır.
+- **▶ Çeviriyi başlat** → ekran yakalama iznini onaylayın → Xbox'ın bağlı olduğu HDMI girişine geçin.
+- OCR alanının yüksekliği, yan boşluk ve çeviri yazı boyutu TV ekranından ayarlanır; çeviri çalışırken anında uygulanır.
+- Sol üstteki sarı **teşhis satırı** yakalamanın gerçekten görüntü alıp almadığını gösterir.
+
+**Kurulum (ADB ile, ağ üzerinden):** TV'de *Geliştirici seçenekleri → USB/Ağ hata ayıklama*yı açın, sonra bilgisayardan:
+
+```bash
+adb connect <TV_IP>:5555
+adb install -r camera-translator-debug.apk
+adb shell appops set com.example.cameratranslator SYSTEM_ALERT_WINDOW allow
+```
+
+Son komut, ayar ekranı olmayan TV'lerde "diğer uygulamaların üzerinde göster" iznini verir.
+
+> ⚠️ **HDMI sınırı:** Birçok TV, HDMI girişini Android'in çizdiği ekranın altında ayrı bir donanım katmanında oynatır. Bu TV'lerde ekran yakalama HDMI görüntüsünü **siyah veya şeffaf** görür ve OCR yapılamaz. Uygulama bunu algılar ve teşhis satırında "SİYAH" / "ŞEFFAF" diye bildirir. Bu durumda çözüm bir **HDMI yakalama kartıdır** (Xbox → kart → TV, kart USB ile Android TV kutusuna). Xbox Cloud Gaming gibi TV'nin içinde çalışan uygulamalarda ekran yakalama genellikle çalışır.
+
+---
+
 ## 📲 Kurulum ve İndirme
 
 1. En güncel imzalı APK dosyasını [GitHub Releases](https://github.com/crosswindfighter/camera-translator/releases) sayfamızdan indirin.
